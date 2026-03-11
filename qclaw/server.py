@@ -242,9 +242,22 @@ def _build_scheduler(body: Dict) -> "JobScheduler":
     )
 
 
+import socket
+
+class ReusableHTTPServer(HTTPServer):
+    """HTTPServer that skips reverse DNS lookup (prevents bind hang on macOS)."""
+    allow_reuse_address = True
+    
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.bind(self.server_address)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
 def serve(port: int = 3850, host: str = "127.0.0.1"):
     """Start Q-CLAW API server."""
-    server = HTTPServer((host, port), QClawHandler)
+    server = ReusableHTTPServer((host, port), QClawHandler)
     print(f"[Q-CLAW] API server live on {host}:{port}")
     print(f"[Q-CLAW] Pricing: {json.dumps(PRICING)}")
     server.serve_forever()

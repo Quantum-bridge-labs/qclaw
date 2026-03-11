@@ -8,7 +8,7 @@ import json
 import numpy as np
 from typing import Dict, Optional, Union
 from .qubo import QUBOMapper, QUBOMatrix
-from .backend import OriginQBackend, SimulatorBackend, BackendResult
+from .backend import OriginQBackend, QiskitAerBackend, SimulatorBackend, BackendResult
 from .problems import TSP, MaxCut, PortfolioOptimizer, JobScheduler
 
 
@@ -50,6 +50,9 @@ class Agent:
         else:
             self.backend = SimulatorBackend()
         
+        # Qiskit Aer: real quantum circuit simulation (local, free, fast)
+        self.qiskit_backend = QiskitAerBackend(shots=shots, p_layers=p_layers)
+        # Classical fallback: simulated annealing
         self.sim_backend = SimulatorBackend()
         self._history = []
     
@@ -83,17 +86,26 @@ class Agent:
             except Exception as e:
                 err = str(e).lower()
                 if "maintenance" in err:
-                    print(f"  Wukong in maintenance. Falling back to {self.fallback}.")
+                    print(f"  Wukong in maintenance. Falling back to Qiskit Aer.")
                 else:
-                    print(f"  QPU error: {e}. Falling back.")
+                    print(f"  QPU error: {e}. Falling back to Qiskit Aer.")
                 
-                if self.fallback == "simulator":
+                # Qiskit Aer first (real quantum simulation), classical as last resort
+                try:
+                    result = self.qiskit_backend.solve(qubo)
+                    backend_used = "qiskit_aer_fallback"
+                except Exception:
                     result = self.sim_backend.solve(qubo)
                     backend_used = "simulator_fallback"
         
         if result is None:
-            result = self.sim_backend.solve(qubo)
-            backend_used = "simulator"
+            # Use Qiskit Aer for quantum mode, classical for classical mode
+            try:
+                result = self.qiskit_backend.solve(qubo)
+                backend_used = "qiskit_aer"
+            except Exception:
+                result = self.sim_backend.solve(qubo)
+                backend_used = "simulator"
         
         total_ms = (time.time() - t0) * 1000
         

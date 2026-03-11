@@ -205,6 +205,87 @@ class OriginQBackend:
         )
 
 
+class QiskitAerBackend:
+    """
+    Qiskit Aer local quantum simulator. Real quantum circuit simulation
+    without cloud dependencies. Fast, free, accurate.
+    """
+    
+    def __init__(self, shots: int = 1000, p_layers: int = 1):
+        self.shots = shots
+        self.p_layers = p_layers
+        self._sim = None
+    
+    def _get_sim(self):
+        if self._sim is None:
+            from qiskit_aer import AerSimulator
+            self._sim = AerSimulator()
+        return self._sim
+    
+    def solve(self, qubo: QUBOMatrix, gamma: float = 0.5, beta: float = 0.5) -> BackendResult:
+        """Solve QUBO using QAOA on Qiskit Aer quantum simulator."""
+        from qiskit import QuantumCircuit
+        
+        n = qubo.n_vars
+        qc = QuantumCircuit(n, n)
+        
+        # Initial superposition
+        for i in range(n):
+            qc.h(i)
+        
+        # QAOA layers
+        for _ in range(self.p_layers):
+            # Cost unitary
+            for i in range(n):
+                if abs(qubo.Q[i, i]) > 1e-10:
+                    qc.rz(2 * gamma * qubo.Q[i, i], i)
+                for j in range(i + 1, n):
+                    if abs(qubo.Q[i, j]) > 1e-10:
+                        qc.cx(i, j)
+                        qc.rz(2 * gamma * qubo.Q[i, j], j)
+                        qc.cx(i, j)
+            # Mixer unitary
+            for i in range(n):
+                qc.rx(2 * beta, i)
+        
+        # Measure
+        qc.measure(range(n), range(n))
+        
+        sim = self._get_sim()
+        t0 = time.time()
+        result = sim.run(qc, shots=self.shots).result()
+        latency = (time.time() - t0) * 1000
+        
+        counts = result.get_counts()
+        
+        best_solution = None
+        best_energy = float('inf')
+        
+        for bitstring, count in counts.items():
+            # Qiskit returns bitstrings in reverse order
+            sol = np.array([int(b) for b in reversed(bitstring)], dtype=int)
+            if len(sol) == n:
+                e = qubo.energy(sol)
+                if e < best_energy:
+                    best_energy = e
+                    best_solution = sol
+        
+        if best_solution is None:
+            best_solution = np.zeros(n, dtype=int)
+            best_energy = qubo.energy(best_solution)
+        
+        return BackendResult(
+            solution=best_solution,
+            energy=best_energy,
+            raw=counts,
+            backend="qiskit_aer",
+            latency_ms=latency,
+            shots=self.shots,
+            metadata={"gamma": gamma, "beta": beta, "p_layers": self.p_layers,
+                       "circuit_depth": qc.depth(), "gate_count": qc.size()}
+        )
+
+
 class SimulatorBackend:
     """
     Local classical QUBO solver. No quantum hardware needed.
