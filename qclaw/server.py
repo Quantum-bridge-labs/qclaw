@@ -21,7 +21,7 @@ def get_agent():
 
 
 # Simple API key auth (production would use proper auth)
-API_KEYS_FILE = os.path.join(os.path.dirname(__file__), "..", "api_keys.json")
+API_KEYS_FILE = os.path.expanduser("~/.openclaw/.qclaw_api_keys.json")
 
 def load_api_keys() -> Dict:
     try:
@@ -55,6 +55,10 @@ class QClawHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("X-Powered-By", "Q-CLAW/0.1")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         self.end_headers()
         self.wfile.write(body)
     
