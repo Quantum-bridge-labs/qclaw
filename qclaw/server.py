@@ -35,7 +35,21 @@ def save_api_keys(keys: Dict):
         json.dump(keys, f, indent=2)
 
 
-# Pricing
+# Internal owner key — zero cost, unlimited credits
+def _load_owner_key():
+    env_path = os.path.expanduser("~/.openclaw/.originq_env")
+    try:
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("QCLAW_OWNER_KEY="):
+                    return line.strip().split("=", 1)[1]
+    except:
+        pass
+    return os.environ.get("QCLAW_OWNER_KEY", "")
+
+OWNER_KEY = _load_owner_key()
+
+# Pricing (external customers)
 PRICING = {
     "tsp": 5.00,
     "maxcut": 5.00,
@@ -64,6 +78,9 @@ class QClawHandler(BaseHTTPRequestHandler):
     
     def _auth(self) -> tuple:
         key = self.headers.get("X-API-Key", "")
+        # Owner key: unlimited, zero cost
+        if OWNER_KEY and key == OWNER_KEY:
+            return key, {"credits": float("inf"), "name": "owner", "is_owner": True}
         keys = load_api_keys()
         if key not in keys:
             return None, None
@@ -174,13 +191,16 @@ class QClawHandler(BaseHTTPRequestHandler):
             # Solve
             result = agent.ping(problem, mode=mode)
             
-            # Deduct credits
-            keys = load_api_keys()
-            keys[api_key]["credits"] -= cost
-            save_api_keys(keys)
-            
-            result["cost_usd"] = cost
-            result["credits_remaining"] = keys[api_key]["credits"]
+            # Deduct credits (skip for owner)
+            if not user.get("is_owner"):
+                keys = load_api_keys()
+                keys[api_key]["credits"] -= cost
+                save_api_keys(keys)
+                result["cost_usd"] = cost
+                result["credits_remaining"] = keys[api_key]["credits"]
+            else:
+                result["cost_usd"] = 0.0
+                result["credits_remaining"] = "unlimited"
             
             self._send(200, result)
         
